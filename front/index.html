@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="https://cdn.bootcdn.net/ajax/libs/js-sha256/0.10.1/sha256.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSO demo</title>
+</head>
+
+<body>
+    <div>
+        <label>用户名</label>
+        <input value="ArSrNa" id="username" />
+    </div>
+    <div>
+        <label>密码</label>
+        <input value="123456" id="password" type="password" />
+    </div>
+    <button onclick="register()">注册</button>
+    <button onclick="login()">登录</button>
+
+    <hr />
+    <div>当前状态：<span id="status"></span>登录</div>
+    <div id="userinfo"></div>
+
+    <button onclick="authFetch()">这个按钮登录的按了才有返回</button>
+
+    <p>Powered by Ar-Sr-Na</p>
+</body>
+
+</html>
+
+<script>
+    const saltSha256 = (str) => (sha256(str + '我永远喜欢爱莉希雅'));
+
+    function parseToken(token) {
+        const [header, payload, sign] = token.split('.');
+        return JSON.parse(atob(payload));
+    }
+
+    window.onload = function (e) {
+        let status = typeof localStorage.token !== 'undefined'
+        document.getElementById('status').innerText = status ? '已' : '未';
+        if (status) {
+            let info = parseToken(localStorage.token);
+            //Token过期清除
+            if (info.exp < Date.now() / 1000) localStorage.clear('token');
+
+            document.getElementById('userinfo').innerHTML = `
+                     <p>欢迎您！${info.sub}
+                     <br />距离登录过期还剩 ${(info.exp - Date.now() / 1000).toFixed(2)}秒
+                     <br /><button onclick="localStorage.clear('token'); location.reload()">退出登录</button>
+                     </p>
+            `
+        }
+    }
+
+    function authFetch() {
+        fetch('http://127.0.0.1:3001/some-apis', {
+            method: 'get',
+            headers: { authorization: `Bearer ${localStorage.token}` }
+        }).then(msg => msg.text())
+            .then(msg => alert(msg))
+    }
+
+    function register() {
+        const username = document.getElementById('username').value;
+        const password = saltSha256(document.getElementById('password').value);
+        fetch('http://127.0.0.1:3001/register', {
+            headers: { 'content-type': 'application/json' },
+            method: 'post',
+            body: JSON.stringify({ username, password })
+        }).then(msg => msg.json())
+            .then(msg => {
+                console.log(msg);
+                alert(msg.msg)
+            })
+    }
+
+    async function login() {
+        const username = document.getElementById('username').value;
+        const password = saltSha256(document.getElementById('password').value);
+        let res = await fetch('http://127.0.0.1:3001/login', {
+            headers: { 'content-type': 'application/json' },
+            method: 'post',
+            body: JSON.stringify({ username, password })
+        }).then(msg => msg.json())
+        console.log(res);
+        alert(res.msg);
+        if (res.success) {
+            localStorage.setItem('token', res.token);
+            location.reload();
+        } else {
+            localStorage.clear('token')
+        }
+
+    }
+</script>
