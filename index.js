@@ -5,9 +5,6 @@
  */
 
 const redis = require('redis');
-const fs = require('fs');
-const privateKey = fs.readFileSync('./keys/private.pem');
-const publicKey = fs.readFileSync('./keys/public.pem');
 
 const client = redis.createClient({
     url: "redis://127.0.0.1:6379",
@@ -21,6 +18,9 @@ const crypto = require('crypto');
 const express = require('express');
 const app = express();
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const { kid } = require('./keys');
+
 app.use(require('body-parser').json());
 
 app.all('*', (req, res, next) => {
@@ -29,6 +29,20 @@ app.all('*', (req, res, next) => {
     next();
 });
 
+/**
+ * @description token解析
+ * @param {string} token jwt
+ */
+function parseToken(token) {
+    const [bheader, bpayload, sign] = token.split('.');
+    const header = Buffer.from(bheader, 'base64').toString('utf8');
+    const payload = Buffer.from(bpayload, 'base64').toString('utf8');
+    return {
+        header: JSON.parse(header),
+        payload: JSON.parse(payload),
+        sign,
+    }
+}
 
 function sha256(str) {
     return crypto.createHash('sha256').update(str + '我永远喜欢爱莉希雅').digest('hex');
@@ -39,9 +53,15 @@ function sha256(str) {
  * @param {string} sub 用户名
  */
 function sign(sub) {
+    //指定随机私钥，并签发对应kid的token
+    const keyid = kid[Math.floor(Math.random() * kid.length)];
+    console.log('kid', keyid);
+    const privateKey = fs.readFileSync(`./keys/${keyid}/private.pem`);
+
     return jwt.sign({
         sub,
     }, privateKey, {
+        keyid,
         algorithm: "RS512",
         //token有效期
         expiresIn: "1h",
@@ -53,6 +73,9 @@ function sign(sub) {
  * @param {string} token token
  */
 function verify(token) {
+    //根据签发时所用的kid确定验签用的公钥
+    let { kid } = parseToken(token).header;
+    const publicKey = fs.readFileSync(`./keys/${kid}/public.pem`);
     try {
         return {
             success: true,
@@ -140,6 +163,8 @@ function preVerify(req) {
     //请求头不正确
     if (typeof authorization === 'undefined') return false;
     const token = authorization.split(' ')[1];
+    //token不存在
+    if (token === 'undefined') return false;
     //判断token
     return (verify(token).success);
 }
