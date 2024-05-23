@@ -10,6 +10,9 @@
 
 <body>
     <h1>简单的登录注册</h1>
+    <p style="color: red;">
+        实现了双token，多key生成token。在前端部分有通过refresh_token刷新access_token的方案，也有纯access_token方案，可以手动尝试
+    </p>
     <div>
         <label>用户名</label>
         <input value="ArSrNa" id="username" />
@@ -25,7 +28,8 @@
     <div>当前状态：<span id="status"></span>登录</div>
     <div id="userinfo"></div>
 
-    <button onclick="authFetch()">这个按钮登录的按了才有返回</button>
+    <button onclick="AuthFetch()">access_token有效按了才有返回</button>
+    <button onclick="FetchAutoRefresh()">refresh_token有效按了才有返回，自动刷新refreshtoken</button>
 
     <p>Powered by Ar-Sr-Na</p>
 </body>
@@ -41,28 +45,64 @@
     }
 
     window.onload = function (e) {
-        let status = typeof localStorage.token !== 'undefined'
+        let status = typeof localStorage.refresh_token !== 'undefined'
         document.getElementById('status').innerText = status ? '已' : '未';
         if (status) {
-            let info = parseToken(localStorage.token);
-            //Token过期清除
-            if (info.exp < Date.now() / 1000) localStorage.clear('token');
-
-            document.getElementById('userinfo').innerHTML = `
-                     <p>欢迎您！${info.sub}
-                     <br />距离登录过期还剩 ${(info.exp - Date.now() / 1000).toFixed(2)}秒
-                     <br /><button onclick="localStorage.clear('token'); location.reload()">退出登录</button>
-                     </p>
+            setInterval(() => {
+                let access_info = parseToken(localStorage.access_token);
+                let refresh_info = parseToken(localStorage.refresh_token);
+                //Refresh_Token过期清除
+                if (refresh_info.exp < Date.now() / 1000) localStorage.clear('token');
+                document.getElementById('userinfo').innerHTML = `
+                以下消息实时刷新
+                <p>欢迎您！${access_info.sub}
+                <br />距离登录过期（access_token过期）还剩 ${(access_info.exp - Date.now() / 1000).toFixed(2)}秒
+                <br />距离refresh_token过期还剩 ${(refresh_info.exp - Date.now() / 1000).toFixed(2)}秒
+                <br /><button onclick="refresh()">刷新token</button>
+                <br /><button onclick="logout()">退出登录</button>
+                </p>
             `
+            }, 100);
         }
     }
 
-    function authFetch() {
+
+    async function refresh() {
+        //判断token存在，否则退出登录
+        if (localStorage.refresh_token === void 0) return;
+        let { exp } = parseToken(localStorage.refresh_token);
+        //判断过期，如果过期自动退出登录
+        if (exp < Date.now() / 1000) {
+            logout();
+            return;
+        };
+        let msg = await fetch('http://127.0.0.1:3001/refresh', {
+            method: 'post',
+            headers: { token: localStorage.refresh_token }
+        }).then(msg => msg.json())
+        console.log(msg)
+        if (!msg.success) {
+            alert('验证失败：' + msg.msg.message);
+            //验证失败，退出登录
+            // logout()
+            return;
+        }
+        //写入localstorage，刷新token
+        localStorage.setItem('access_token', msg.msg.access_token);
+        localStorage.setItem('refresh_token', msg.msg.refresh_token);
+    }
+
+    function AuthFetch() {
         fetch('http://127.0.0.1:3001/some-apis', {
             method: 'get',
-            headers: { authorization: `Bearer ${localStorage.token}` }
+            headers: { authorization: `Bearer ${localStorage.access_token}` }
         }).then(msg => msg.text())
             .then(msg => alert(msg))
+    }
+
+    async function FetchAutoRefresh() {
+        await refresh();
+        AuthFetch();
     }
 
     function register() {
@@ -90,11 +130,18 @@
         console.log(res);
         alert(res.msg);
         if (res.success) {
-            localStorage.setItem('token', res.token);
+            localStorage.setItem('access_token', res.token.access_token);
+            localStorage.setItem('refresh_token', res.token.refresh_token);
             location.reload();
         } else {
-            localStorage.clear('token')
+            localStorage.clear('access_token');
+            localStorage.clear('refresh_token');
         }
+    }
 
+    function logout() {
+        localStorage.clear('access_token');
+        localStorage.clear('refresh_token');
+        location.reload();
     }
 </script>

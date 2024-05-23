@@ -13,13 +13,13 @@ client.on('error', console.log);
 client.connect();
 
 
-
 const crypto = require('crypto');
 const express = require('express');
 const app = express();
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const { kid } = require('./keys');
+
 
 app.use(require('body-parser').json());
 
@@ -54,18 +54,35 @@ function sha256(str) {
  */
 function sign(sub) {
     //指定随机私钥，并签发对应kid的token
-    const keyid = kid[Math.floor(Math.random() * kid.length)];
-    console.log('kid', keyid);
-    const privateKey = fs.readFileSync(`./keys/${keyid}/private.pem`);
+    const acc_keyid = kid[Math.floor(Math.random() * kid.length)];
+    const ref_keyid = kid[Math.floor(Math.random() * kid.length)];
+    console.log({
+        accessKid: acc_keyid,
+        refreshKid: ref_keyid
+    });
+    const acc_privateKey = fs.readFileSync(`./keys/${acc_keyid}/private.pem`);
+    const ref_privateKey = fs.readFileSync(`./keys/${ref_keyid}/private.pem`);
 
-    return jwt.sign({
+    //签发refresh token
+    let refresh_token = jwt.sign({
         sub,
-    }, privateKey, {
-        keyid,
+    }, ref_privateKey, {
+        keyid: ref_keyid,
+        algorithm: 'RS512',
+        expiresIn: '7d'
+    });
+
+    let access_token = jwt.sign({
+        sub,
+    }, acc_privateKey, {
+        keyid: acc_keyid,
         algorithm: "RS512",
         //token有效期
-        expiresIn: "1h",
+        expiresIn: "15s",
     });
+    return {
+        access_token, refresh_token
+    }
 }
 
 /**
@@ -140,18 +157,23 @@ async function login(username, password) {
     }
 }
 
-app.post('/register', async (req, res) => {
-    const { username, password } = req.body;
-    let data = await register(username, password);
-    res.send(data);
-    await client.SAVE();
-});
+/**
+ * @description 刷新token
+ */
+function refresh(refresh_token) {
+    const { header } = parseToken(refresh_token);
+    const { kid } = header;
+    try {
+        let data = jwt.verify(refresh_token, fs.readFileSync(`./keys/${kid}/public.pem`));
+        const { sub } = data;
+        return {
+            success: true, msg: sign(sub)
+        }
+    } catch (err) {
+        return { success: false, msg: err }
+    }
+}
 
-app.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-    let data = await login(username, password);
-    res.send(data)
-});
 
 
 /**
@@ -178,6 +200,26 @@ app.get('/some-apis', (req, res) => {
     }
     res.send('验证通过！我永远喜欢爱莉希雅！');
 });
+
+app.post('/register', async (req, res) => {
+    const { username, password } = req.body;
+    let data = await register(username, password);
+    res.send(data);
+    await client.SAVE();
+});
+
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body;
+    let data = await login(username, password);
+    res.send(data)
+});
+
+app.post('/refresh', async (req, res) => {
+    const { token } = req.headers;
+    let r = refresh(token);
+    // console.log('refresh', r)
+    res.send(r);
+})
 
 
 // register('ArSrNa', sha256('123456')).then(msg => {
