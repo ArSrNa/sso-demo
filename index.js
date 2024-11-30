@@ -1,3 +1,5 @@
+let dotenv = require('dotenv');
+dotenv.config('./env');
 //SSO单点登录
 /**
  * @author Ar-Sr-Na
